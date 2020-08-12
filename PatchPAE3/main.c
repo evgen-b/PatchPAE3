@@ -19,7 +19,7 @@ typedef VOID (NTAPI *PPATCH_FUNCTION)(
     __out PBOOLEAN Success
     );
 
-const PWSTR appver=L"0.0.0.48 beta-4";
+const PWSTR appver=L"0.0.0.48 beta-5";
 
 PPH_STRING ArgInput;
 PPH_STRING ArgOutput;
@@ -4874,7 +4874,7 @@ VOID PatchBypassSFC2195_part1(
 //cmp eax,ebx
 
     };
-    ULONG movOffset = 0;
+    ULONG movOffset = 15;
     PUCHAR ptr = LoadedImage->MappedAddress;
     ULONG i, j;
 
@@ -4891,7 +4891,7 @@ VOID PatchBypassSFC2195_part1(
         {
             // Found it. Patch the code.
 
-            *(PUSHORT)&ptr[movOffset+15] = 0x9090;
+            *(PUSHORT)&ptr[movOffset] = 0x9090;
 
             *Success = TRUE;
             break;
@@ -4941,6 +4941,112 @@ VOID PatchBypassSFC2195_part2(
 }
 
 // ========================================
+// ======================================== 2600 BSFC-PART ==========
+// ========================================
+
+VOID PatchBypassSFC2600_part1_v1(
+    __in PLOADED_IMAGE LoadedImage,
+    __out PBOOLEAN Success
+    )
+{
+
+    UCHAR target[] =
+    {
+
+	// win XP sp2 sp3
+0xA1, 0, 0, 0, 0,
+//mov eax,[_adr_]
+0x83, 0xF8, 0x9D,
+//cmp eax,09D
+0x75, 0,
+//jnz __OK        ---> jmps __OK (EB xx)
+0x33, 0xC0,
+//xor eax,eax
+0x40,
+//inc eax
+0xA3 //, 0, 0, 0, 0
+//mov [_adr_],eax
+
+    };
+    ULONG movOffset = 8;
+    PUCHAR ptr = LoadedImage->MappedAddress;
+    ULONG i, j;
+
+    for (i = 0; i < LoadedImage->SizeOfImage - sizeof(target); i++)
+    {
+        for (j = 0; j < sizeof(target); j++)
+        {
+			if (ptr[j] != target[j] && j != 1 && j != 2 && j != 3 && j != 4 && j != 9) // ignore offsets
+				break;
+        }
+
+        if (j == sizeof(target))
+        {
+            // Found it. Patch the code.
+
+            ptr[movOffset] = 0xEB;
+
+            *Success = TRUE;
+            break;
+        }
+
+        ptr++;
+    }
+}
+
+// ========================================
+// ======================================== 2600 BSFC-PART ==========
+// ========================================
+
+VOID PatchBypassSFC2600_part1_v2(
+    __in PLOADED_IMAGE LoadedImage,
+    __out PBOOLEAN Success
+    )
+{
+
+    UCHAR target[] =
+    {
+
+	// win XP sp0 sp1 server 2003r2 sp1
+0xA1, 0, 0, 0, 0,
+//mov eax,[_adr_]
+0x83, 0xF8, 0x9D,
+//cmp eax,09D
+0x75, 0,
+//jnz __OK        ---> jmps __OK (EB xx)
+0x8B, 0xC6,
+//mov eax,esi
+0xA3 //, 0, 0, 0, 0
+//mov [_adr_],eax
+
+    };
+    ULONG movOffset = 8;
+    PUCHAR ptr = LoadedImage->MappedAddress;
+    ULONG i, j;
+
+    for (i = 0; i < LoadedImage->SizeOfImage - sizeof(target); i++)
+    {
+        for (j = 0; j < sizeof(target); j++)
+        {
+			if (ptr[j] != target[j] && j != 1 && j != 2 && j != 3 && j != 4 && j != 9) // ignore offsets
+				break;
+        }
+
+        if (j == sizeof(target))
+        {
+            // Found it. Patch the code.
+
+            ptr[movOffset] = 0xEB;
+
+            *Success = TRUE;
+            break;
+        }
+
+        ptr++;
+    }
+}
+
+// ========================================
 // ======================================== 2195 BSFC-PART ==========
 // ========================================
 
@@ -4953,6 +5059,15 @@ VOID PatchSFC_2195_main(
     BOOLEAN success2 = FALSE;
 
     PatchBypassSFC2195_part1(LoadedImage, &success1);
+	if (!success1)
+	{
+		PatchBypassSFC2600_part1_v1(LoadedImage, &success1);
+		if (!success1)
+		{
+			PatchBypassSFC2600_part1_v2(LoadedImage, &success1);
+		}
+	}
+
     PatchBypassSFC2195_part2(LoadedImage, &success2);
 
     *Success = success1 && success2;
