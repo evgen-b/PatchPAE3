@@ -12,13 +12,14 @@
 #define TYPE_PAE 4
 #define TYPE_SSE2NX 5
 #define TYPE_HT 6
+#define TYPE_SFC 7
 
 typedef VOID (NTAPI *PPATCH_FUNCTION)(
     __in PLOADED_IMAGE LoadedImage,
     __out PBOOLEAN Success
     );
 
-const PWSTR appver=L"0.0.0.48 beta-3";
+const PWSTR appver=L"0.0.0.48 beta-4";
 
 PPH_STRING ArgInput;
 PPH_STRING ArgOutput;
@@ -4839,6 +4840,128 @@ VOID PatchBypassHT_main(
 // _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 // _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 // _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// B_SFC   _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+
+// ========================================
+// ======================================== 2195 BSFC-PART ==========
+// ========================================
+
+VOID PatchBypassSFC2195_part1(
+    __in PLOADED_IMAGE LoadedImage,
+    __out PBOOLEAN Success
+    )
+{
+
+    UCHAR target[] =
+    {
+
+0xE9, 0x00, 0x00, 0x00, 0x00,
+//jmp ** ** ** **
+0xA1, 0x00, 0x00, 0x00, 0x00,
+//mov eax,[_adr_]
+0x83, 0xF8, 0x9D,
+//cmp eax,09D
+0x75, 0x00,
+//jnz ** ** ** **
+0x8B, 0xC6,
+//mov eax,esi --> nop(2)
+0xA3, 0x00, 0x00, 0x00, 0x00,
+//mov [_adr_],eax
+0x3B, 0xC3
+//cmp eax,ebx
+
+    };
+    ULONG movOffset = 0;
+    PUCHAR ptr = LoadedImage->MappedAddress;
+    ULONG i, j;
+
+    for (i = 0; i < LoadedImage->SizeOfImage - sizeof(target); i++)
+    {
+        for (j = 0; j < sizeof(target); j++)
+        {
+			if (ptr[j] != target[j] && j != 1 && j != 2 && j != 3 && j != 4 && j != 6 && j != 7 && j != 8 && j != 9
+				&& j != 14 && j != 18 && j != 19 && j != 20 && j != 21) // ignore **
+				break;
+        }
+
+        if (j == sizeof(target))
+        {
+            // Found it. Patch the code.
+
+            *(PUSHORT)&ptr[movOffset+15] = 0x9090;
+
+            *Success = TRUE;
+            break;
+        }
+
+        ptr++;
+    }
+}
+
+// ========================================
+// ======================================== 2195 BSFC-PART ==========
+// ========================================
+
+VOID PatchBypassSFC2195_part2(
+    __in PLOADED_IMAGE LoadedImage,
+    __out PBOOLEAN Success
+    )
+{
+	wchar_t target[]=L"SFCDisable";
+	wchar_t wpatch[]=L"SFCSetting";
+    ULONG Offset = 0;
+    PUCHAR ptr = LoadedImage->MappedAddress;
+    ULONG i, j;
+
+	//wprintf(L"\nsizeof(target)=%d s=%s\n", sizeof(target), target); // some unicode mindfuker:
+	//for (j = 0; j < sizeof(target); j++) wprintf(L"\nj=%d char=%x char=%c", j, ((UCHAR *)target)[j], ((UCHAR *)target)[j]);
+
+    for (i = 0; i < LoadedImage->SizeOfImage - sizeof(target); i++)
+    {
+        for (j = 0; j < sizeof(target); j++)
+        {
+            if (ptr[j] != ((UCHAR *)target)[j])
+                break;
+        }
+
+        if (j == sizeof(target))
+        {
+            // Found it. Replace string:
+			memcpy(&ptr[Offset], &wpatch, sizeof(target));
+
+            *Success = TRUE;
+            break;
+        }
+
+        ptr++;
+    }
+}
+
+// ========================================
+// ======================================== 2195 BSFC-PART ==========
+// ========================================
+
+VOID PatchSFC_2195_main(
+    __in PLOADED_IMAGE LoadedImage,
+    __out PBOOLEAN Success
+    )
+{
+    BOOLEAN success1 = FALSE;
+    BOOLEAN success2 = FALSE;
+
+    PatchBypassSFC2195_part1(LoadedImage, &success1);
+    PatchBypassSFC2195_part2(LoadedImage, &success2);
+
+    *Success = success1 && success2;
+}
+
+
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 // END     _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 // _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 // _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
@@ -4850,7 +4973,9 @@ VOID HelpType_Common()
 	L"* print user guide for patch \"4 Gb 32-bit memory limit\":\n"
 	L"    PatchPAE3.EXE -help unlock_pae\n"
 	L"* print user guide for patch \"bypass Windows 8 CPU feature checks\":\n"
-	L"    PatchPAE3.EXE -help bypass_cpuid\n\n"
+	L"    PatchPAE3.EXE -help bypass_cpuid\n"
+	L"* print user guide for patch \"bypass Windows SFC/WFP\":\n"
+	L"    PatchPAE3.EXE -help bypass_wfp\n\n"
 	);
 }
 
@@ -5038,6 +5163,38 @@ VOID HelpType_BypassCPUID()
 
 	);
 }
+
+VOID HelpType_BypassWFP()
+{
+	wprintf(
+	L"Disable SFC/WFP 2000 SP2+/2003/XP.\n\n"
+	L"The Windows File Protection feature in Microsoft Windows prevents programs\n"
+	L"from replacing critical Windows system files. After patch you may have to\n"
+	L"turn the feature on or off in certain configurations. You can enable or\n"
+	L"disable Windows File Protection in Microsoft Windows with a registry edit.\n\n"
+
+	L"1a  For Windos 2000 SP2 and newer (no need to patch SP0/SP1):\n"
+	L"    PatchPAE3.EXE -type bypass_wfp -o sfcnew.dll sfc.dll\n"
+	L"    This will add disable SFC/WPF feature in 2000 system.\n\n"
+	L"1b  For Windos XP/2003 patch:\n"
+	L"    PatchPAE3.EXE -type bypass_wfp -o sfc_osnew.dll sfc_os.dll\n"
+	L"    This will add disable SFC/WPF feature in 2003/XP system.\n\n"
+
+	L"2.  Add the registry key:\n"
+	L"    reg.exe ADD \"HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v SFCSetting /t REG_DWORD /d 0xFFFFFF9D /f\n"
+	L"    This command deactivates SFC/WPF.\n\n"
+	L"    Patched version sfc.dll/sfc_os.dll uses the key SFCSetting instead\n"
+	L"    SFCDisable, because some M$ programs reset original-named key to 0.\n\n"
+
+	L"5.  Update files sfc*.dll in distributive or run Windows\n"
+	L"    in Safe Mode to replace files on live OS.\n\n"
+
+	L"http://forum.oszone.net/post-378004.html#post378004\n"
+	L"https://msfn.org/board/topic/110834-disable-xp-sfcwfp-works-with-sp3/\n\n"
+
+	);
+}
+
 
 BOOLEAN CommandLineCallback(
     __in_opt PPH_COMMAND_LINE_OPTION Option,
@@ -5237,6 +5394,8 @@ int __cdecl main(int argc, char *argv[])
 			HelpType_EnablePAE();
         else if (PhEqualString2(ArgHelpTopic, L"bypass_cpuid", TRUE))
 			HelpType_BypassCPUID();
+        else if (PhEqualString2(ArgHelpTopic, L"bypass_wfp", TRUE))
+			HelpType_BypassWFP();
         else
 			HelpType_Common();	
 		return 2;
@@ -5258,9 +5417,12 @@ int __cdecl main(int argc, char *argv[])
             ArgTypeInteger = TYPE_SSE2NX;
         else if (PhEqualString2(ArgType, L"bypass_ht", TRUE))
             ArgTypeInteger = TYPE_HT;
+        else if (PhEqualString2(ArgType, L"bypass_wfp", TRUE))
+            ArgTypeInteger = TYPE_SFC;
         else
             Fail(L"Wrong type. Must be \"kernel\", \"hal\" or \"loader\" for enable PAE.\n"
-                L"Must be  \"bypass_pae\", \"bypass_sse2nx\" or \"bypass_ht\" for bypass cpuid PAE/NX/SSE2/HT check.\n", 0);
+                L"Must be  \"bypass_pae\", \"bypass_sse2nx\" or \"bypass_ht\" for bypass cpuid PAE/NX/SSE2/HT check.\n"
+                L"Must be  \"bypass_wfp\" for bypass SFC/WFP check.\n", 0);
     }
 
     if (PhIsNullOrEmptyString(ArgInput))
@@ -5408,6 +5570,14 @@ int __cdecl main(int argc, char *argv[])
 		else
             Fail(L"Unsupported kernel version.", 0);
     }
+	else if (ArgTypeInteger == TYPE_SFC)
+	{
+        if (revision >= 2195)
+			// 2k/XP/2003
+			Patch(ArgOutput, PatchSFC_2195_main);
+		else
+            Fail(L"Unsupported dll version.", 0);
+	}
 	else
     { //TYPE_HT
 		if (revision >= 8400)
