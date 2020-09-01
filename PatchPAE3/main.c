@@ -13,13 +13,14 @@
 #define TYPE_SSE2NX 5
 #define TYPE_HT 6
 #define TYPE_SFC 7
+#define TYPE_SETUPAPIDIGICERT 8
 
 typedef VOID (NTAPI *PPATCH_FUNCTION)(
     __in PLOADED_IMAGE LoadedImage,
     __out PBOOLEAN Success
     );
 
-const PWSTR appver=L"0.0.0.48 beta-5";
+const PWSTR appver=L"0.0.0.48 beta-6";
 
 PPH_STRING ArgInput;
 PPH_STRING ArgOutput;
@@ -5073,6 +5074,89 @@ VOID PatchSFC_2195_main(
     *Success = success1 && success2;
 }
 
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// B_SAPI_DIGICERT  _/_/_/_/_/_/_/_/_/_/
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+
+// ========================================
+// ======================================== 2195 SETUPAPI-DIGICERT-PART ==========
+// ========================================
+
+VOID PatchSADIGICERT2195_part(
+    __in PLOADED_IMAGE LoadedImage,
+    __out PBOOLEAN Success
+    )
+{
+
+    UCHAR target[] =
+    {
+
+0x8B, 0x45, 0x00,
+//mov eax,[ebp][policy_1]
+0x3B, 0x45, 0x00,
+//cmp eax,[ebp][policy_2]
+0x77, 0x00,			// --->>> mov eax,0
+//ja __stronger
+0x8B, 0x45, 0x00,	// --->>> B8 00 00 00 00 
+//mov eax,[ebp][policy_2]
+0x5F,
+//pop edi
+0x5E,
+//pop esi
+0x5B,
+//pop ebx
+0xC9,
+//leave
+0xC2, 0x04, 0x00
+//retn 4
+
+    };
+    ULONG movOffset = 6;
+    PUCHAR ptr = LoadedImage->MappedAddress;
+    ULONG i, j;
+
+    for (i = 0; i < LoadedImage->SizeOfImage - sizeof(target); i++)
+    {
+        for (j = 0; j < sizeof(target); j++)
+        {
+			if (ptr[j] != target[j] && j != 2 && j != 5 && j != 7 && j != 10 ) // ignore **
+				break;
+        }
+
+        if (j == sizeof(target))
+        {
+            // Found it. Patch the code.
+
+            ptr[movOffset] = 0xb8;
+            *(PULONG)&ptr[movOffset + 1] = 0;
+
+            *Success = TRUE;
+            break;
+        }
+
+        ptr++;
+    }
+}
+
+// ========================================
+// ======================================== 2195 SETUPAPI-DIGICERT-PART ==========
+// ========================================
+
+VOID PatchSADIGICERT_2195_main(
+    __in PLOADED_IMAGE LoadedImage,
+    __out PBOOLEAN Success
+    )
+{
+    BOOLEAN success1 = FALSE;
+
+    PatchSADIGICERT2195_part(LoadedImage, &success1);
+
+    *Success = success1;
+}
 
 // _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 // _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
@@ -5089,6 +5173,8 @@ VOID HelpType_Common()
 	L"    PatchPAE3.EXE -help unlock_pae\n"
 	L"* print user guide for patch \"bypass Windows 8 CPU feature checks\":\n"
 	L"    PatchPAE3.EXE -help bypass_cpuid\n"
+	L"* print user guide for patch \"bypass Driver Signing checks\":\n"
+	L"    PatchPAE3.EXE -help setupapi_digicert\n"
 	L"* print user guide for patch \"bypass Windows SFC/WFP\":\n"
 	L"    PatchPAE3.EXE -help bypass_wfp\n\n"
 	);
@@ -5288,10 +5374,10 @@ VOID HelpType_BypassWFP()
 	L"turn the feature on or off in certain configurations. You can enable or\n"
 	L"disable Windows File Protection in Microsoft Windows with a registry edit.\n\n"
 
-	L"1a  For Windos 2000 SP2 and newer (no need to patch SP0/SP1):\n"
+	L"1a  For Windows 2000 SP2 and newer (no need to patch SP0/SP1):\n"
 	L"    PatchPAE3.EXE -type bypass_wfp -o sfcnew.dll sfc.dll\n"
 	L"    This will add disable SFC/WPF feature in 2000 system.\n\n"
-	L"1b  For Windos XP/2003 patch:\n"
+	L"1b  For Windows XP/2003 patch:\n"
 	L"    PatchPAE3.EXE -type bypass_wfp -o sfc_osnew.dll sfc_os.dll\n"
 	L"    This will add disable SFC/WPF feature in 2003/XP system.\n\n"
 
@@ -5301,7 +5387,7 @@ VOID HelpType_BypassWFP()
 	L"    Patched version sfc.dll/sfc_os.dll uses the key SFCSetting instead\n"
 	L"    SFCDisable, because some M$ programs reset original-named key to 0.\n\n"
 
-	L"5.  Update files sfc*.dll in distributive or run Windows\n"
+	L"3.  Update files sfc*.dll in distributive or run Windows\n"
 	L"    in Safe Mode to replace files on live OS.\n\n"
 
 	L"http://forum.oszone.net/post-378004.html#post378004\n"
@@ -5310,6 +5396,25 @@ VOID HelpType_BypassWFP()
 	);
 }
 
+VOID HelpType_BypassDigiCert()
+{
+	wprintf(
+	L"Disable Driver Signing in Windows 2000.\n\n"
+	L"Windows assume HKLM\\SOFTWARE\\Microsoft\\Driver Signing\\Policy=0 and\n"
+	L"HKLM\\SOFTWARE\\Microsoft\\Non-Driver Signing\\Policy=0  after this patch.\n\n"
+
+	L"1.  To patch GetCurrentDriverSigningPolicy/pSetupGetCurrentDriverSigningPolicy run:\n"
+	L"    PatchPAE3.EXE -type setupapi_digicert -o setupapi_new.dll setupapi.dll\n"
+	L"    This will disable Driver Signing feature in Windows.\n\n"
+
+	L"2.  Update file setupapi.dll in distributive or run Windows\n"
+	L"    in Safe Mode to replace file on live OS.\n\n"
+
+	L"see also: How to permanently disable Driver Signing during Windows setup\n"
+	L"https://msfn.org/board/topic/158481-how-to-permanently-disable-driver-signing-during-windows-setup/\n\n"
+
+	);
+}
 
 BOOLEAN CommandLineCallback(
     __in_opt PPH_COMMAND_LINE_OPTION Option,
@@ -5511,6 +5616,8 @@ int __cdecl main(int argc, char *argv[])
 			HelpType_BypassCPUID();
         else if (PhEqualString2(ArgHelpTopic, L"bypass_wfp", TRUE))
 			HelpType_BypassWFP();
+        else if (PhEqualString2(ArgHelpTopic, L"setupapi_digicert", TRUE))
+			HelpType_BypassDigiCert();
         else
 			HelpType_Common();	
 		return 2;
@@ -5534,10 +5641,13 @@ int __cdecl main(int argc, char *argv[])
             ArgTypeInteger = TYPE_HT;
         else if (PhEqualString2(ArgType, L"bypass_wfp", TRUE))
             ArgTypeInteger = TYPE_SFC;
+        else if (PhEqualString2(ArgType, L"setupapi_digicert", TRUE))
+            ArgTypeInteger = TYPE_SETUPAPIDIGICERT;
         else
             Fail(L"Wrong type. Must be \"kernel\", \"hal\" or \"loader\" for enable PAE.\n"
                 L"Must be  \"bypass_pae\", \"bypass_sse2nx\" or \"bypass_ht\" for bypass cpuid PAE/NX/SSE2/HT check.\n"
-                L"Must be  \"bypass_wfp\" for bypass SFC/WFP check.\n", 0);
+                L"Must be  \"bypass_wfp\" for bypass SFC/WFP check.\n"
+                L"Must be  \"setupapi_digicert\" for bypass Driver Signing check.\n", 0);
     }
 
     if (PhIsNullOrEmptyString(ArgInput))
@@ -5687,9 +5797,17 @@ int __cdecl main(int argc, char *argv[])
     }
 	else if (ArgTypeInteger == TYPE_SFC)
 	{
-        if (revision >= 2195)
+        if (revision >= 2100)
 			// 2k/XP/2003
 			Patch(ArgOutput, PatchSFC_2195_main);
+		else
+            Fail(L"Unsupported dll version.", 0);
+	}
+	else if (ArgTypeInteger == TYPE_SETUPAPIDIGICERT)
+	{
+        if (revision >= 2100)
+			// 2k/XP/2003
+			Patch(ArgOutput, PatchSADIGICERT_2195_main);
 		else
             Fail(L"Unsupported dll version.", 0);
 	}
