@@ -14,13 +14,14 @@
 #define TYPE_HT 6
 #define TYPE_SFC 7
 #define TYPE_SETUPAPIDIGICERT 8
+#define TYPE_EXPLORE2K 9
 
 typedef VOID (NTAPI *PPATCH_FUNCTION)(
     __in PLOADED_IMAGE LoadedImage,
     __out PBOOLEAN Success
     );
 
-const PWSTR appver=L"0.0.0.48 beta-6";
+const PWSTR appver=L"0.0.0.48 beta-7";
 
 PPH_STRING ArgInput;
 PPH_STRING ArgOutput;
@@ -5158,6 +5159,155 @@ VOID PatchSADIGICERT_2195_main(
     *Success = success1;
 }
 
+
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// EXPLORER 256   _/ _/_/_/_/_/_/_/_/_/_/
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+// _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+
+// ========================================
+// ======================================== EXPLORER256 SP3 - PART1 ==========
+// ========================================
+
+VOID PatchExplore2k_sp3_part1(
+    __in PLOADED_IMAGE LoadedImage,
+    __out PBOOLEAN Success
+    )
+{
+
+    UCHAR target[] =
+    {
+
+0x6A, 0x2C,
+//push 2C
+0x6A, 0x40,
+//push 40
+0xC7, 0x44, 0x24, 0x18, 0x01, 0x00, 0x00, 0x00,
+//mov d,[esp][18],1   <<<===
+0xFF, 0x15, 0x00, 0x00, 0x00, 0x00,
+//call LocalAlloc
+0x8B, 0xF0,
+//mov esi,eax
+0x33, 0xDB,
+//xor ebx,ebx
+0x3B, 0xF3,
+//cmp esi,ebx
+0x0F, 0x84 //, 0xE4, 0xBA, 0x00, 0x00,
+//jz 0040E3D8
+
+
+    };
+    ULONG movOffset = 8;
+    PUCHAR ptr = LoadedImage->MappedAddress;
+    ULONG i, j;
+
+    for (i = 0; i < LoadedImage->SizeOfImage - sizeof(target); i++)
+    {
+        for (j = 0; j < sizeof(target); j++)
+        {
+			if (ptr[j] != target[j] && j != 14 && j != 15 && j != 16 && j != 17 ) // ignore **
+				break;
+        }
+
+        if (j == sizeof(target))
+        {
+            // Found it. Patch the code.
+
+            ptr[movOffset] = 0x11;
+
+            *Success = TRUE;
+            break;
+        }
+
+        ptr++;
+    }
+}
+
+// ========================================
+// ======================================== EXPLORER256 SP3 - PART2 ==========
+// ========================================
+
+VOID PatchExplore2k_sp3_part2(
+    __in PLOADED_IMAGE LoadedImage,
+    __out PBOOLEAN Success
+    )
+{
+
+    UCHAR target[] =
+    {
+
+0x6A, 0x01,
+//push 1                <<<===
+0x5B,
+//pop ebx
+0x74, 0,
+//jz  04158FE
+0xFF, 0x77, 0x04,
+//push [edi][4]
+0xE8, 0, 0, 0, 0,
+//call 0040A4DD
+0x85, 0xC0,
+//test eax,eax
+0x74, 0,
+//jz 04158FE
+0xBB, 0x01, 0x20, 0x00, 0x00,
+//mov ebx,000002001    <<<===
+0x6A, 0x01,
+//push 1
+0x6A, 0x00,
+//push 0
+0x53
+//push ebx
+
+    };
+    PUCHAR ptr = LoadedImage->MappedAddress;
+    ULONG i, j;
+
+    for (i = 0; i < LoadedImage->SizeOfImage - sizeof(target); i++)
+    {
+        for (j = 0; j < sizeof(target); j++)
+        {
+			if (ptr[j] != target[j] && j != 4 && j != 9 && j != 10 && j != 11 && j != 12 && j != 16) // ignore **
+				break;
+        }
+
+        if (j == sizeof(target))
+        {
+            // Found it. Patch the code.
+
+            ptr[ 1] = 0x11;
+            ptr[18] = 0x11;
+
+            *Success = TRUE;
+            break;
+        }
+
+        ptr++;
+    }
+}
+
+// ========================================
+// ======================================== EXPLORER256 SP3 - MAIN ==========
+// ========================================
+
+VOID PatchExplore2k_sp3_main(
+    __in PLOADED_IMAGE LoadedImage,
+    __out PBOOLEAN Success
+    )
+{
+    BOOLEAN success1 = FALSE;
+    BOOLEAN success2 = FALSE;
+
+    PatchExplore2k_sp3_part1(LoadedImage, &success1);
+    PatchExplore2k_sp3_part2(LoadedImage, &success2);
+
+    *Success = success1 && success2;
+}
+
+
 // _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 // _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 // _/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
@@ -5176,7 +5326,9 @@ VOID HelpType_Common()
 	L"* print user guide for patch \"bypass Driver Signing checks\":\n"
 	L"    PatchPAE3.EXE -help setupapi_digicert\n"
 	L"* print user guide for patch \"bypass Windows SFC/WFP\":\n"
-	L"    PatchPAE3.EXE -help bypass_wfp\n\n"
+	L"    PatchPAE3.EXE -help bypass_wfp\n"
+	L"* print user guide for \"Windows 2000 Explorer Patch (256 color TrayIcons)\":\n"
+	L"    PatchPAE3.EXE -help explorer256tray\n\n"
 	);
 }
 
@@ -5416,6 +5568,24 @@ VOID HelpType_BypassDigiCert()
 	);
 }
 
+VOID HelpType_Explore2K()
+{
+	wprintf(
+	L"Patch TrayIcon Windows 2000, You can now use 256 colors icon in your Explorer TrayBar.\n\n"
+
+	L"1.  To patch Explorer run:\n"
+	L"    PatchPAE3.EXE -type explorer256tray -o explorer_new.exe explorer.exe\n"
+	L"    This will enable 256 colors icon in your Explorer TrayBar in Windows 2000.\n\n"
+
+	L"2.  Update file explorer.exe in distributive or run Windows\n"
+	L"    in Safe Mode to replace file on live OS.\n\n"
+
+	L"see also: Explorer Patch (256 color TrayIcons)\n"
+	L"http://www.dr-hoiby.com/TrayIconIn256Color/\n\n"
+
+	);
+}
+
 BOOLEAN CommandLineCallback(
     __in_opt PPH_COMMAND_LINE_OPTION Option,
     __in_opt PPH_STRING Value,
@@ -5618,6 +5788,8 @@ int __cdecl main(int argc, char *argv[])
 			HelpType_BypassWFP();
         else if (PhEqualString2(ArgHelpTopic, L"setupapi_digicert", TRUE))
 			HelpType_BypassDigiCert();
+        else if (PhEqualString2(ArgHelpTopic, L"explorer256tray", TRUE))
+			HelpType_Explore2K();
         else
 			HelpType_Common();	
 		return 2;
@@ -5643,11 +5815,14 @@ int __cdecl main(int argc, char *argv[])
             ArgTypeInteger = TYPE_SFC;
         else if (PhEqualString2(ArgType, L"setupapi_digicert", TRUE))
             ArgTypeInteger = TYPE_SETUPAPIDIGICERT;
+        else if (PhEqualString2(ArgType, L"explorer256tray", TRUE))
+            ArgTypeInteger = TYPE_EXPLORE2K;
         else
             Fail(L"Wrong type. Must be \"kernel\", \"hal\" or \"loader\" for enable PAE.\n"
                 L"Must be  \"bypass_pae\", \"bypass_sse2nx\" or \"bypass_ht\" for bypass cpuid PAE/NX/SSE2/HT check.\n"
                 L"Must be  \"bypass_wfp\" for bypass SFC/WFP check.\n"
-                L"Must be  \"setupapi_digicert\" for bypass Driver Signing check.\n", 0);
+                L"Must be  \"setupapi_digicert\" for bypass Driver Signing check.\n"
+                L"Must be  \"explorer256tray\" for bypass Driver Signing check.\n", 0);
     }
 
     if (PhIsNullOrEmptyString(ArgInput))
@@ -5810,6 +5985,14 @@ int __cdecl main(int argc, char *argv[])
 			Patch(ArgOutput, PatchSADIGICERT_2195_main);
 		else
             Fail(L"Unsupported dll version.", 0);
+	}
+	else if (ArgTypeInteger == TYPE_EXPLORE2K)
+	{
+        if (revision >= 2100)
+			// 2k SP4
+			Patch(ArgOutput, PatchExplore2k_sp3_main);
+		else
+            Fail(L"Unsupported explorer version.", 0);
 	}
 	else
     { //TYPE_HT
